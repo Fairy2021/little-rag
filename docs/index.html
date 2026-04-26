@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Tutor 函数调用路线图</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="mark">R</span>
+      <div>
+        <strong>RAG Tutor</strong>
+        <small>函数调用路线图</small>
+      </div>
+    </div>
+    <nav>
+      <a href="#overview">总览</a>
+      <a href="#data">数据结构</a>
+      <a href="#chunk">Ingest / Chunk</a>
+      <a href="#index">Embedding / Index</a>
+      <a href="#retrieve">Retrieval</a>
+      <a href="#generate">Generation</a>
+      <a href="#eval">Evaluation</a>
+      <a href="#commands">运行命令</a>
+    </nav>
+  </aside>
+
+  <main>
+    <section id="overview" class="hero">
+      <p class="eyebrow">Teaching RAG, from scratch</p>
+      <h1>一个能离线运行、可评估、带引用的教学版 RAG 工程</h1>
+      <p class="lead">
+        这页把项目里的入口脚本、核心函数、数据流和评估链路串起来。
+        你可以沿着箭头理解：原文如何变成 chunk，chunk 如何进入索引，问题如何变成答案，答案如何被评估。
+      </p>
+      <div class="flow wide">
+        <span>ingest</span><b>→</b><span>normalize</span><b>→</b><span>chunk</span><b>→</b><span>embed</span><b>→</b><span>index</span><b>→</b><span>retrieve</span><b>→</b><span>fusion</span><b>→</b><span>rerank</span><b>→</b><span>generate</span><b>→</b><span>eval</span>
+      </div>
+    </section>
+
+    <section id="data">
+      <h2>核心数据结构</h2>
+      <div class="grid four">
+        <article>
+          <h3>Document</h3>
+          <p>原始文档对象，保存全文、来源路径和元信息。它是 chunk 前的输入。</p>
+          <code>doc_id, text, source_path, metadata</code>
+        </article>
+        <article>
+          <h3>Chunk</h3>
+          <p>检索的最小单位。每个 chunk 都能追溯到章节、段落和字符位置。</p>
+          <code>chunk_id, chapter_index, start_char, end_char</code>
+        </article>
+        <article>
+          <h3>Evidence</h3>
+          <p>被选入上下文的证据，包含 chunk 文本、分数和来源信息。</p>
+          <code>chunk_id, text, score, chapter</code>
+        </article>
+        <article>
+          <h3>Answer</h3>
+          <p>最终回答对象，包含答案文本、证据列表、引用和 prompt 元数据。</p>
+          <code>question, answer, evidences, citations</code>
+        </article>
+      </div>
+    </section>
+
+    <section id="chunk">
+      <h2>Phase 2：Ingest / Normalize / Chunk</h2>
+      <div class="route">
+        <h3>入口：scripts/prepare_chunks.py</h3>
+        <ol>
+          <li><b>read_text_file()</b><p>读取 .txt / .md，使用 utf-8-sig 兼容 BOM。</p></li>
+          <li><b>normalize_text()</b><p>统一换行、去 BOM、压缩空白，保留章节和段落结构。</p></li>
+          <li><b>Document(...)</b><p>把清洗后的全文包装成文档对象。</p></li>
+          <li><b>chunk_document()</b><p>段落优先切块，支持 chunk_size 和 overlap。</p></li>
+          <li><b>write_jsonl()</b><p>输出 chunks.jsonl，每行一个可检索 chunk。</p></li>
+        </ol>
+      </div>
+      <pre><code>prepare_chunks.py
+  → read_text_file()
+  → normalize_text()
+  → Document()
+  → chunk_document()
+      → split_paragraphs()
+      → detect_chapter()
+      → _tail_overlap_paragraphs()
+      → _split_long_paragraph()
+  → write_jsonl()</code></pre>
+    </section>
+
+    <section id="index">
+      <h2>Phase 3：Embedding / Dense Index</h2>
+      <div class="grid two">
+        <article>
+          <h3>FakeEmbedding</h3>
+          <p>完全离线、确定性的 hash embedding。它把字符、bigram 和英文数字词映射到固定维度，再做 L2 normalize。</p>
+        </article>
+        <article>
+          <h3>DenseIndex</h3>
+          <p>保存 vectors 和 chunks。优先使用 FAISS 的 IndexFlatIP，没有 FAISS 时退回 numpy cosine。</p>
+        </article>
+      </div>
+      <pre><code>build_index.py
+  → read_jsonl(chunks)
+  → FakeEmbedding.embed_texts()
+  → DenseIndex.build()
+  → DenseIndex.save()
+
+query_dense.py
+  → DenseIndex.load()
+  → FakeEmbedding.embed_query()
+  → DenseIndex.search()</code></pre>
+    </section>
+
+    <section id="retrieve">
+      <h2>Phase 4 + 5：Hybrid Retrieval / Rerank</h2>
+      <div class="route">
+        <h3>检索链路</h3>
+        <ol>
+          <li><b>DenseIndex.search()</b><p>用向量相似度召回语义/词面近似候选。</p></li>
+          <li><b>BM25Index.search()</b><p>用词项频率和 IDF 做稀疏检索，补强精确匹配。</p></li>
+          <li><b>reciprocal_rank_fusion()</b><p>用 RRF 融合两个候选列表，不直接相加不同尺度的分数。</p></li>
+          <li><b>heuristic_rerank()</b><p>根据 query coverage 和 sources bonus 重新排序。</p></li>
+        </ol>
+      </div>
+      <pre><code>question
+  → embed_query()
+  → DenseIndex.search()
+  → BM25Index.search()
+  → reciprocal_rank_fusion()
+  → heuristic_rerank()</code></pre>
+    </section>
+
+    <section id="generate">
+      <h2>Phase 5 + 6：Context / Prompt / LLM</h2>
+      <div class="grid two">
+        <article>
+          <h3>DummyLLM</h3>
+          <p>离线证据摘句器。证据不足时回答“不知道”，每条句子强制附带 [chunk_id]。</p>
+        </article>
+        <article>
+          <h3>OpenAICompatibleLLM</h3>
+          <p>读取环境变量，调用 chat/completions 兼容接口。适合接入 gpt-4o 或其他兼容模型。</p>
+        </article>
+      </div>
+      <pre><code>answer_question()
+  → build_context()
+      → Evidence(...)
+  → build_prompt()
+  → llm.generate()
+  → collect citations
+  → Answer(...)</code></pre>
+    </section>
+
+    <section id="eval">
+      <h2>Phase 7：Evaluation</h2>
+      <div class="grid three">
+        <article>
+          <h3>Retrieval</h3>
+          <p>Recall@k、MRR、nDCG@k、latency avg / p50 / p95。</p>
+        </article>
+        <article>
+          <h3>Generation</h3>
+          <p>KeywordJudge 或 LLMJudge 判断答案是否正确。</p>
+        </article>
+        <article>
+          <h3>Grounding</h3>
+          <p>检查 citation 是否有效，以及 claim 是否被 evidence 支持。</p>
+        </article>
+      </div>
+      <pre><code>run_eval.py
+  → retrieval_eval()
+      → retrieve()
+      → ndcg_at_k()
+      → latency_stats()
+  → generation_grounding_eval()
+      → answer_question()
+      → Judge.score_answer()
+      → Judge.score_support()
+  → build_report()
+  → eval_report.md</code></pre>
+    </section>
+
+    <section id="commands">
+      <h2>常用运行命令</h2>
+      <div class="commands">
+        <code>python scripts/make_demo_data.py</code>
+        <code>python scripts/prepare_chunks.py --input orig_txt/hongloumeng.txt</code>
+        <code>python scripts/build_index.py --chunks rag_tutor/data/chunks.jsonl</code>
+        <code>python scripts/query_hybrid.py "黛玉进入荣府 贾母"</code>
+        <code>python scripts/ask.py "黛玉进京后拜见了谁"</code>
+        <code>python eval/run_eval.py</code>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+
