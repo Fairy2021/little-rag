@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RAG Tutor 函数调用路线图</title>
+  <title>RAG Tutor 初学者教学网页</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -12,162 +12,301 @@
       <span class="mark">R</span>
       <div>
         <strong>RAG Tutor</strong>
-        <small>函数调用路线图</small>
+        <small>从函数调用到系统理解</small>
       </div>
     </div>
     <nav>
-      <a href="#overview">总览</a>
-      <a href="#data">数据结构</a>
-      <a href="#chunk">Ingest / Chunk</a>
-      <a href="#index">Embedding / Index</a>
-      <a href="#retrieve">Retrieval</a>
-      <a href="#generate">Generation</a>
-      <a href="#eval">Evaluation</a>
-      <a href="#commands">运行命令</a>
+      <a href="#start">从这里开始</a>
+      <a href="#mental-model">RAG 心智模型</a>
+      <a href="#map">全链路地图</a>
+      <a href="#schema">数据结构</a>
+      <a href="#phase2">文本处理</a>
+      <a href="#phase3">向量索引</a>
+      <a href="#phase4">混合检索</a>
+      <a href="#phase5">生成答案</a>
+      <a href="#phase7">评估系统</a>
+      <a href="#trace">一次问答追踪</a>
+      <a href="#commands">命令速查</a>
     </nav>
   </aside>
 
   <main>
-    <section id="overview" class="hero">
-      <p class="eyebrow">Teaching RAG, from scratch</p>
-      <h1>一个能离线运行、可评估、带引用的教学版 RAG 工程</h1>
+    <section id="start" class="hero">
+      <p class="eyebrow">Beginner-friendly RAG walkthrough</p>
+      <h1>把一个 RAG 工程拆成你能看懂、能运行、能改动的函数调用路线</h1>
       <p class="lead">
-        这页把项目里的入口脚本、核心函数、数据流和评估链路串起来。
-        你可以沿着箭头理解：原文如何变成 chunk，chunk 如何进入索引，问题如何变成答案，答案如何被评估。
+        这不是一页 API 清单，而是一份面向初学者的导览。你会看到每个脚本从哪里进，
+        调用了哪些函数，每个函数处理什么数据，为什么需要这个步骤，以及出问题时该看哪里。
       </p>
-      <div class="flow wide">
-        <span>ingest</span><b>→</b><span>normalize</span><b>→</b><span>chunk</span><b>→</b><span>embed</span><b>→</b><span>index</span><b>→</b><span>retrieve</span><b>→</b><span>fusion</span><b>→</b><span>rerank</span><b>→</b><span>generate</span><b>→</b><span>eval</span>
+      <div class="notice">
+        建议阅读方式：先看“全链路地图”，再按 Phase 逐段理解，最后跟着“一次问答追踪”把代码串起来。
       </div>
     </section>
 
-    <section id="data">
-      <h2>核心数据结构</h2>
-      <div class="grid four">
+    <section id="mental-model">
+      <h2>1. RAG 到底在做什么</h2>
+      <p>
+        RAG 是 Retrieval-Augmented Generation，直译是“检索增强生成”。它解决的问题是：
+        大模型不可能把你本地的书、文档、业务资料都记在参数里，所以我们先从资料库里找证据，
+        再把证据交给模型回答。
+      </p>
+      <div class="grid three">
         <article>
-          <h3>Document</h3>
-          <p>原始文档对象，保存全文、来源路径和元信息。它是 chunk 前的输入。</p>
-          <code>doc_id, text, source_path, metadata</code>
+          <h3>检索 Retrieval</h3>
+          <p>用户问问题时，系统先去资料库里找最相关的 chunk。这里会用 dense 检索、BM25 检索和 RRF 融合。</p>
         </article>
         <article>
-          <h3>Chunk</h3>
-          <p>检索的最小单位。每个 chunk 都能追溯到章节、段落和字符位置。</p>
-          <code>chunk_id, chapter_index, start_char, end_char</code>
+          <h3>增强 Augmentation</h3>
+          <p>把检索到的 chunk 变成带引用的上下文。引用格式是 <code>[chunk_id]</code>，后续可以追溯来源。</p>
         </article>
         <article>
-          <h3>Evidence</h3>
-          <p>被选入上下文的证据，包含 chunk 文本、分数和来源信息。</p>
-          <code>chunk_id, text, score, chapter</code>
-        </article>
-        <article>
-          <h3>Answer</h3>
-          <p>最终回答对象，包含答案文本、证据列表、引用和 prompt 元数据。</p>
-          <code>question, answer, evidences, citations</code>
+          <h3>生成 Generation</h3>
+          <p>LLM 只能基于证据回答。证据不足时要说“不知道”，不能随便编。</p>
         </article>
       </div>
     </section>
 
-    <section id="chunk">
-      <h2>Phase 2：Ingest / Normalize / Chunk</h2>
-      <div class="route">
-        <h3>入口：scripts/prepare_chunks.py</h3>
-        <ol>
-          <li><b>read_text_file()</b><p>读取 .txt / .md，使用 utf-8-sig 兼容 BOM。</p></li>
-          <li><b>normalize_text()</b><p>统一换行、去 BOM、压缩空白，保留章节和段落结构。</p></li>
-          <li><b>Document(...)</b><p>把清洗后的全文包装成文档对象。</p></li>
-          <li><b>chunk_document()</b><p>段落优先切块，支持 chunk_size 和 overlap。</p></li>
-          <li><b>write_jsonl()</b><p>输出 chunks.jsonl，每行一个可检索 chunk。</p></li>
-        </ol>
+    <section id="map">
+      <h2>2. 全链路地图</h2>
+      <p>从原始《红楼梦》文本到最终回答，项目走的是下面这条路线。</p>
+      <div class="pipeline">
+        <span>原始 txt</span><b>→</b>
+        <span>normalize</span><b>→</b>
+        <span>chunk</span><b>→</b>
+        <span>embedding</span><b>→</b>
+        <span>dense index</span><b>→</b>
+        <span>dense + BM25</span><b>→</b>
+        <span>RRF</span><b>→</b>
+        <span>rerank</span><b>→</b>
+        <span>context</span><b>→</b>
+        <span>prompt</span><b>→</b>
+        <span>answer</span><b>→</b>
+        <span>eval</span>
       </div>
-      <pre><code>prepare_chunks.py
-  → read_text_file()
-  → normalize_text()
-  → Document()
-  → chunk_document()
-      → split_paragraphs()
-      → detect_chapter()
-      → _tail_overlap_paragraphs()
-      → _split_long_paragraph()
-  → write_jsonl()</code></pre>
-    </section>
+      <pre><code>完整问答入口：scripts/ask.py
 
-    <section id="index">
-      <h2>Phase 3：Embedding / Dense Index</h2>
-      <div class="grid two">
-        <article>
-          <h3>FakeEmbedding</h3>
-          <p>完全离线、确定性的 hash embedding。它把字符、bigram 和英文数字词映射到固定维度，再做 L2 normalize。</p>
-        </article>
-        <article>
-          <h3>DenseIndex</h3>
-          <p>保存 vectors 和 chunks。优先使用 FAISS 的 IndexFlatIP，没有 FAISS 时退回 numpy cosine。</p>
-        </article>
-      </div>
-      <pre><code>build_index.py
-  → read_jsonl(chunks)
-  → FakeEmbedding.embed_texts()
-  → DenseIndex.build()
-  → DenseIndex.save()
-
-query_dense.py
+用户问题
   → DenseIndex.load()
   → FakeEmbedding.embed_query()
-  → DenseIndex.search()</code></pre>
-    </section>
-
-    <section id="retrieve">
-      <h2>Phase 4 + 5：Hybrid Retrieval / Rerank</h2>
-      <div class="route">
-        <h3>检索链路</h3>
-        <ol>
-          <li><b>DenseIndex.search()</b><p>用向量相似度召回语义/词面近似候选。</p></li>
-          <li><b>BM25Index.search()</b><p>用词项频率和 IDF 做稀疏检索，补强精确匹配。</p></li>
-          <li><b>reciprocal_rank_fusion()</b><p>用 RRF 融合两个候选列表，不直接相加不同尺度的分数。</p></li>
-          <li><b>heuristic_rerank()</b><p>根据 query coverage 和 sources bonus 重新排序。</p></li>
-        </ol>
-      </div>
-      <pre><code>question
-  → embed_query()
   → DenseIndex.search()
   → BM25Index.search()
   → reciprocal_rank_fusion()
-  → heuristic_rerank()</code></pre>
+  → heuristic_rerank()
+  → answer_question()
+  → build_context()
+  → build_prompt()
+  → DummyLLM.generate() 或 OpenAICompatibleLLM.generate()
+  → Answer</code></pre>
     </section>
 
-    <section id="generate">
-      <h2>Phase 5 + 6：Context / Prompt / LLM</h2>
-      <div class="grid two">
+    <section id="schema">
+      <h2>3. 四个核心数据结构</h2>
+      <p>
+        初学者最容易迷路的地方是“数据到底长什么样”。这个项目只用四个核心数据结构贯穿全链路。
+      </p>
+      <div class="grid four">
         <article>
-          <h3>DummyLLM</h3>
-          <p>离线证据摘句器。证据不足时回答“不知道”，每条句子强制附带 [chunk_id]。</p>
+          <h3>Document</h3>
+          <p>原始文档，代表一整本书或一个文件。chunk 之前先有 Document。</p>
+          <pre><code>Document(
+  doc_id="hongloumeng",
+  text="清洗后的全文",
+  source_path="orig_txt/hongloumeng.txt",
+  metadata={...}
+)</code></pre>
         </article>
         <article>
-          <h3>OpenAICompatibleLLM</h3>
-          <p>读取环境变量，调用 chat/completions 兼容接口。适合接入 gpt-4o 或其他兼容模型。</p>
+          <h3>Chunk</h3>
+          <p>检索的最小单位。每个 chunk 都带章节、段落、字符位置。</p>
+          <pre><code>Chunk(
+  chunk_id="hongloumeng:00051",
+  chapter="第三回 ...",
+  chapter_index=2,
+  start_char=...,
+  end_char=...
+)</code></pre>
         </article>
+        <article>
+          <h3>Evidence</h3>
+          <p>进入上下文的证据。它来自 chunk，但额外带检索分数和来源信息。</p>
+          <pre><code>Evidence(
+  chunk_id="...",
+  text="证据文本",
+  score=0.73,
+  metadata={"sources": ...}
+)</code></pre>
+        </article>
+        <article>
+          <h3>Answer</h3>
+          <p>最终回答对象。它保存答案、证据、引用和 prompt 调试信息。</p>
+          <pre><code>Answer(
+  question="...",
+  answer="- ... [chunk_id]",
+  evidences=[...],
+  citations=[...]
+)</code></pre>
+        </article>
+      </div>
+    </section>
+
+    <section id="phase2">
+      <h2>4. 文本处理：从 txt 到 chunks.jsonl</h2>
+      <p>入口命令：</p>
+      <pre><code>python scripts/prepare_chunks.py --input orig_txt/hongloumeng.txt --out rag_tutor/data/chunks.jsonl</code></pre>
+      <div class="route">
+        <ol>
+          <li>
+            <b>read_text_file(path)</b>
+            <p>读取 txt/md 文件。使用 <code>utf-8-sig</code>，这样带 BOM 的文本也能正常读。</p>
+          </li>
+          <li>
+            <b>normalize_text(text)</b>
+            <p>统一换行、清理 BOM、把全角空格变普通空格、压缩多余空行。它不会删除章节标题，因为后面 citation 要靠章节定位。</p>
+          </li>
+          <li>
+            <b>Document(...)</b>
+            <p>把清洗后的全文包装成一个文档对象，记录原始路径和字符数。</p>
+          </li>
+          <li>
+            <b>chunk_document(document, chunk_size, overlap)</b>
+            <p>按段落优先切块。能不硬切就不硬切，尽量保持自然段完整。</p>
+          </li>
+          <li>
+            <b>write_jsonl(out, chunks)</b>
+            <p>每行写一个 chunk，方便后续流式读取和调试。</p>
+          </li>
+        </ol>
+      </div>
+      <h3>chunk_document 内部发生了什么</h3>
+      <pre><code>chunk_document()
+  → split_paragraphs()
+      → detect_chapter()
+  → 逐段合并，直到接近 chunk_size
+  → _tail_overlap_paragraphs()
+  → _split_long_paragraph()
+  → Chunk(...)</code></pre>
+      <div class="tip">
+        初学者重点：chunk 不是随便切字符串。好的 chunk 要兼顾长度、语义完整性和来源追踪。
+      </div>
+    </section>
+
+    <section id="phase3">
+      <h2>5. 向量索引：从 chunks 到 dense index</h2>
+      <p>入口命令：</p>
+      <pre><code>python scripts/build_index.py --chunks rag_tutor/data/chunks.jsonl --out-dir rag_tutor/index/dense</code></pre>
+      <div class="route">
+        <ol>
+          <li>
+            <b>read_jsonl(chunks)</b>
+            <p>读取 Phase 2 生成的 chunk 列表。</p>
+          </li>
+          <li>
+            <b>FakeEmbedding.embed_texts(texts)</b>
+            <p>离线 embedding。把字符和 bigram hash 到固定维度，再做 L2 normalize。它不是语义模型，但足够教学和离线演示。</p>
+          </li>
+          <li>
+            <b>DenseIndex.build(chunks, vectors)</b>
+            <p>把 chunk 和向量绑定在一起。</p>
+          </li>
+          <li>
+            <b>DenseIndex.save(out_dir)</b>
+            <p>保存 <code>vectors.npy</code>、<code>chunks.jsonl</code>、<code>meta.json</code>，如果有 FAISS 还会保存 <code>faiss.index</code>。</p>
+          </li>
+        </ol>
+      </div>
+      <h3>为什么 normalize 后可以用内积</h3>
+      <p>
+        DenseIndex 里会把向量都做 L2 normalize。归一化后，两个向量的 inner product 就等价于 cosine similarity。
+        所以 FAISS 用 <code>IndexFlatIP</code> 就能做余弦检索。
+      </p>
+    </section>
+
+    <section id="phase4">
+      <h2>6. 混合检索：Dense + BM25 + RRF</h2>
+      <p>入口命令：</p>
+      <pre><code>python scripts/query_hybrid.py "黛玉进入荣府 贾母"</code></pre>
+      <div class="grid three">
+        <article>
+          <h3>DenseIndex.search()</h3>
+          <p>把 query 变成向量，然后找向量空间里最相似的 chunk。适合召回“说法接近”的内容。</p>
+        </article>
+        <article>
+          <h3>BM25Index.search()</h3>
+          <p>用词频、文档频率和长度归一化打分。适合召回“关键词完全命中”的内容。</p>
+        </article>
+        <article>
+          <h3>reciprocal_rank_fusion()</h3>
+          <p>只看排名，不直接相加分数。因为 dense 分数和 BM25 分数不是同一量纲。</p>
+        </article>
+      </div>
+      <pre><code>question
+  → FakeEmbedding.embed_query()
+  → DenseIndex.search()
+  → BM25Index.search()
+  → reciprocal_rank_fusion({"dense": dense, "bm25": bm25})
+  → hybrid candidates</code></pre>
+      <h3>RRF 的直觉</h3>
+      <p>
+        如果一个 chunk 同时被 dense 和 BM25 排在前面，它就应该更可信。
+        RRF 给每个候选加上 <code>1 / (rrf_k + rank)</code>，排名越靠前，加分越多。
+      </p>
+    </section>
+
+    <section id="phase5">
+      <h2>7. 生成答案：从候选 chunk 到带引用回答</h2>
+      <p>入口命令：</p>
+      <pre><code>python scripts/ask.py "黛玉进京后拜见了谁"</code></pre>
+      <div class="route">
+        <ol>
+          <li>
+            <b>heuristic_rerank()</b>
+            <p>根据 query coverage 和 sources bonus 重新排序。query 词覆盖越多、dense 和 BM25 都命中的 chunk 越靠前。</p>
+          </li>
+          <li>
+            <b>build_context()</b>
+            <p>去重、限制长度，把 chunk 包装成 Evidence，并生成带 <code>[chunk_id]</code> 的上下文。</p>
+          </li>
+          <li>
+            <b>build_prompt()</b>
+            <p>写清规则：只能基于证据回答，不知道就说不知道，每条结论必须引用。</p>
+          </li>
+          <li>
+            <b>llm.generate()</b>
+            <p>默认使用 DummyLLM，真实模型可切到 OpenAICompatibleLLM。</p>
+          </li>
+          <li>
+            <b>Answer(...)</b>
+            <p>收集 answer、evidences、citations 和 prompt 元数据。</p>
+          </li>
+        </ol>
       </div>
       <pre><code>answer_question()
   → build_context()
-      → Evidence(...)
   → build_prompt()
-  → llm.generate()
+  → DummyLLM.generate()
   → collect citations
   → Answer(...)</code></pre>
+      <div class="tip">
+        初学者重点：RAG 的“可信”不是因为模型厉害，而是因为每条结论都能追溯到 evidence。
+      </div>
     </section>
 
-    <section id="eval">
-      <h2>Phase 7：Evaluation</h2>
+    <section id="phase7">
+      <h2>8. 评估系统：怎么知道 RAG 好不好</h2>
+      <p>入口命令：</p>
+      <pre><code>python eval/run_eval.py</code></pre>
       <div class="grid three">
         <article>
-          <h3>Retrieval</h3>
-          <p>Recall@k、MRR、nDCG@k、latency avg / p50 / p95。</p>
+          <h3>Retrieval Eval</h3>
+          <p>看证据有没有找对。指标包括 Recall@k、MRR、nDCG@k、latency avg/p50/p95。</p>
         </article>
         <article>
-          <h3>Generation</h3>
-          <p>KeywordJudge 或 LLMJudge 判断答案是否正确。</p>
+          <h3>Generation Eval</h3>
+          <p>看答案是否正确。离线用 KeywordJudge，有 key 时可以用 LLMJudge。</p>
         </article>
         <article>
-          <h3>Grounding</h3>
-          <p>检查 citation 是否有效，以及 claim 是否被 evidence 支持。</p>
+          <h3>Grounding Eval</h3>
+          <p>看答案里的 claim 是否真的被 citation 对应的 evidence 支持。</p>
         </article>
       </div>
       <pre><code>run_eval.py
@@ -181,20 +320,76 @@ query_dense.py
       → Judge.score_support()
   → build_report()
   → eval_report.md</code></pre>
+      <h3>指标怎么读</h3>
+      <table>
+        <thead><tr><th>指标</th><th>含义</th><th>低了说明什么</th></tr></thead>
+        <tbody>
+          <tr><td>Recall@k</td><td>top-k 里是否有相关证据</td><td>检索召回不够</td></tr>
+          <tr><td>MRR</td><td>第一个相关证据排得多靠前</td><td>排序不够好</td></tr>
+          <tr><td>nDCG@k</td><td>高相关证据是否排在前面</td><td>rerank 或融合需要调</td></tr>
+          <tr><td>citation accuracy</td><td>引用是否有效且相关</td><td>生成或证据选择有问题</td></tr>
+          <tr><td>unsupported claim rate</td><td>结论是否缺少证据支撑</td><td>模型在编或引用不准</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="trace">
+      <h2>9. 一次问答的完整追踪</h2>
+      <p>问题：</p>
+      <pre><code>黛玉进京后拜见了谁</code></pre>
+      <div class="timeline">
+        <div>
+          <b>第 1 步：ask.py 接收问题</b>
+          <p>解析参数，加载 dense index，选择 FakeEmbedding 和 DummyLLM。</p>
+        </div>
+        <div>
+          <b>第 2 步：dense 检索</b>
+          <p>问题被 embed 成向量，DenseIndex.search 找出向量相似的 chunks。</p>
+        </div>
+        <div>
+          <b>第 3 步：BM25 检索</b>
+          <p>BM25 根据“黛玉、进京、拜见、贾母”等词面信号召回 chunks。</p>
+        </div>
+        <div>
+          <b>第 4 步：RRF 融合</b>
+          <p>dense 和 BM25 的排名被合并，同一 chunk 被多路召回会更靠前。</p>
+        </div>
+        <div>
+          <b>第 5 步：rerank</b>
+          <p>heuristic_rerank 根据 query coverage 再排序，选出最终证据。</p>
+        </div>
+        <div>
+          <b>第 6 步：context + prompt</b>
+          <p>证据被拼成带 [chunk_id] 的上下文，prompt 要求只基于证据回答。</p>
+        </div>
+        <div>
+          <b>第 7 步：生成 Answer</b>
+          <p>DummyLLM 摘出证据句，输出“黛玉进京，初入荣国府，拜见外祖母贾母。 [chunk_id]”。</p>
+        </div>
+      </div>
     </section>
 
     <section id="commands">
-      <h2>常用运行命令</h2>
+      <h2>10. 命令速查</h2>
       <div class="commands">
         <code>python scripts/make_demo_data.py</code>
-        <code>python scripts/prepare_chunks.py --input orig_txt/hongloumeng.txt</code>
-        <code>python scripts/build_index.py --chunks rag_tutor/data/chunks.jsonl</code>
-        <code>python scripts/query_hybrid.py "黛玉进入荣府 贾母"</code>
+        <code>python scripts/prepare_chunks.py --input rag_tutor/data/demo_hongloumeng.txt --out rag_tutor/data/demo_chunks.jsonl --chunk-size 80 --overlap 20</code>
+        <code>python scripts/prepare_chunks.py --input orig_txt/hongloumeng.txt --out rag_tutor/data/chunks.jsonl</code>
+        <code>python scripts/build_index.py --chunks rag_tutor/data/chunks.jsonl --out-dir rag_tutor/index/dense --dim 256</code>
+        <code>python scripts/query_dense.py "黛玉进京后拜见了谁" --top-k 5</code>
+        <code>python scripts/query_hybrid.py "黛玉进入荣府 贾母" --top-k 5</code>
         <code>python scripts/ask.py "黛玉进京后拜见了谁"</code>
         <code>python eval/run_eval.py</code>
+        <code>python eval/make_qa50.py --limit 50</code>
       </div>
+      <h3>接入真实 LLM</h3>
+      <pre><code>$env:OPENAI_COMPAT_API_KEY="你的 key"
+$env:OPENAI_COMPAT_CHAT_URL="https://open.xiaojingai.com/v1/chat/completions"
+$env:OPENAI_COMPAT_CHAT_MODEL="gpt-4o"
+
+python scripts/ask.py "黛玉进京后拜见了谁" --llm openai
+python eval/run_eval.py --judge llm --support-judge llm</code></pre>
     </section>
   </main>
 </body>
 </html>
-
