@@ -41,6 +41,144 @@
       <div class="notice">
         建议阅读方式：先看“全链路地图”，再按 Phase 逐段理解，最后跟着“一次问答追踪”把代码串起来。
       </div>
+      <div class="overview-card">
+        <h2>RAG 系统总览图</h2>
+        <p>
+          先把整套系统当成 9 层来看：数据怎么进入系统，怎么变成向量和索引，怎么被检索、排序、生成，
+          最后又怎么用评测指标检查质量。
+        </p>
+        <pre class="tree"><code>RAG 系统
+│
+├── 1. 数据层（Data Pipeline）
+│   │
+│   ├── 原始数据
+│   │   └── txt / md 文件
+│   │
+│   ├── Ingest（读取）
+│   │   └── read_text_file()
+│   │
+│   ├── Normalize（清洗）
+│   │   └── normalize_text()
+│   │       ├── 去 BOM
+│   │       ├── 统一换行
+│   │       ├── 空格清理
+│   │       └── 保留结构（章节/段落）
+│   │
+│   ├── Chunk（切分）核心
+│   │   └── chunk_document()
+│   │       ├── split_paragraphs()      → 段落切分
+│   │       ├── detect_chapter()        → 章节识别
+│   │       ├── chunk_size 控制长度
+│   │       ├── overlap                 → 防信息断裂
+│   │       └── _split_long_paragraph()
+│   │
+│   └── 输出
+│       └── chunks.jsonl
+│           └── Chunk（最小检索单位）
+│
+├── 2. 表示层（Embedding）
+│   │
+│   ├── EmbeddingModel（抽象接口）
+│   │
+│   ├── FakeEmbedding（默认）
+│   │   └── token → hash → vector
+│   │       （词面相似）
+│   │
+│   ├── OpenAIEmbedding（可选）
+│   │   └── text → 语义向量
+│   │
+│   └── 输出
+│       └── vectors.npy
+│
+├── 3. 索引层（Index）
+│   │
+│   ├── DenseIndex（向量索引）
+│   │   ├── FAISS（工业级）
+│   │   └── numpy（简化版）
+│   │
+│   └── 输出
+│       └── index/
+│           ├── vectors.npy
+│           ├── chunks.jsonl
+│           └── faiss.index
+│
+├── 4. 检索层（Retrieval）核心
+│   │
+│   ├── Query 输入
+│   │
+│   ├── Dense Retrieval（语义检索）
+│   │   └── 向量相似度（dot / cosine）
+│   │
+│   ├── BM25（关键词检索）
+│   │   └── TF-IDF + 长度归一化
+│   │
+│   ├── Hybrid（混合检索）
+│   │   └── Dense + BM25
+│   │
+│   └── RRF Fusion
+│       └── 1 / (k + rank)
+│       （基于排名融合）
+│
+├── 5. 排序层（Rerank）核心
+│   │
+│   └── heuristic_rerank()
+│       ├── tokenize(query)
+│       ├── tokenize(chunk)
+│       ├── overlap（词重合）
+│       ├── coverage（覆盖率）
+│       ├── source_bonus（多源加分）
+│       └── final_score 排序
+│
+├── 6. 构造层（Context + Prompt）
+│   │
+│   ├── build_context()
+│   │   ├── 去重 chunk
+│   │   ├── 限制长度
+│   │   ├── 拼接 evidence
+│   │   └── 加 citation [chunk_id]
+│   │
+│   ├── build_prompt()
+│   │   ├── 只能用证据
+│   │   ├── 必须引用
+│   │   └── 不知道就说不知道
+│
+├── 7. 生成层（LLM）
+│   │
+│   ├── DummyLLM（规则）
+│   │   ├── _content_terms()
+│   │   ├── _best_sentence()
+│   │   └── 拼接答案
+│   │
+│   └── OpenAICompatibleLLM（真实模型）
+│       └── chat/completions API
+│
+├── 8. 输出层（Answer）
+│   │
+│   └── Answer
+│       ├── answer 文本
+│       ├── evidences
+│       └── citations
+│
+└── 9. 评测层（Eval）论文核心
+    │
+    ├── Retrieval Eval
+    │   ├── Recall@k     → 找没找到
+    │   ├── MRR          → 排得靠前吗
+    │   ├── nDCG         → 排序质量
+    │   └── latency      → 快不快
+    │
+    ├── Generation Eval
+    │   ├── KeywordJudge
+    │   └── LLMJudge（主流）
+    │
+    ├── Grounding Eval
+    │   ├── citation_accuracy
+    │   ├── unsupported_claim
+    │   └── LLM support judge
+    │
+    └── 输出
+        └── eval_report.md</code></pre>
+      </div>
     </section>
 
     <section id="mental-model">

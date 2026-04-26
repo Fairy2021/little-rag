@@ -133,6 +133,33 @@ h3 {
   color: #21443f;
 }
 
+.overview-card {
+  margin-top: 22px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.overview-card h2 {
+  margin-bottom: 8px;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.overview-card p {
+  color: var(--muted);
+}
+
+.tree {
+  max-height: 760px;
+  margin-bottom: 0;
+  border: 1px solid #243044;
+  background: #0f172a;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .pipeline,
 .flow {
   display: flex;
